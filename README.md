@@ -1,2 +1,10 @@
-# Drone-Camera-Controller
-Custom Roblox camera recoil system with movement-based bounce and first-person feedback. Toggle with E key and use the recoil test to simulate camera kick for testing and tuning.
+A Roblox camera recoil system that adds dynamic bounce while walking and in first person. Toggle the effect with the E key. Includes a recoil test feature for simulating strong camera kick.
+
+## Features
+- Toggle recoil (E key)
+- Movement-based camera bounce
+- First-person support
+- Recoil test function
+
+## Usage
+Place the script in a LocalScript inside StarterPlayerScripts.
