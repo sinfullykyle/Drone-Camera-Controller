@@ -1,4 +1,4 @@
-# 🎥 Roblox Camera Controller System
+# Roblox camera control system
 
 ![Luau](https://img.shields.io/badge/Luau-Roblox-blue)
 ![Type](https://img.shields.io/badge/System-Camera_Controller-green)
@@ -9,7 +9,7 @@ This system focuses on **mouse-driven camera sway, recoil effects, and real-time
 
 ---
 
-## ✨ Features
+## Features
 
 * Spring-based camera motion system
 * Mouse-driven sway with smoothing and clamping
@@ -24,7 +24,7 @@ This system focuses on **mouse-driven camera sway, recoil effects, and real-time
 
 ---
 
-## 🧠 Systems Used
+## Systems Used
 
 * CFrame transformation and layered composition
 * Metatable-based object design (Spring + Controller)
@@ -35,7 +35,7 @@ This system focuses on **mouse-driven camera sway, recoil effects, and real-time
 
 ---
 
-## 🎮 Controls
+## Controls
 
 | Key           | Action                          |
 | ------------- | ------------------------------- |
@@ -48,7 +48,7 @@ This system focuses on **mouse-driven camera sway, recoil effects, and real-time
 
 ---
 
-## 🚀 Usage
+## Usage
 
 Place the script in a **LocalScript** inside:
 
@@ -56,7 +56,7 @@ Place the script in a **LocalScript** inside:
 StarterPlayerScripts
 ```
 
-## 📌 Notes
+## Notes
 
 * Built as a **single-file system** to demonstrate structure and clarity
 * Focused on **responsive camera feedback**, not simple interpolation
