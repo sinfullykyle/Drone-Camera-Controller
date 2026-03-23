@@ -56,26 +56,6 @@ Place the script in a **LocalScript** inside:
 StarterPlayerScripts
 ```
 
----
-
-## 🎥 Demo
-
-> (Optional but HIGHLY recommended)
-
-Add a short GIF or video here showing:
-
-* Mouse movement → sway
-* Recoil test
-* Aim mode
-
-Example:
-
-```md
-![Demo](your-gif-link-here)
-```
-
----
-
 ## 📌 Notes
 
 * Built as a **single-file system** to demonstrate structure and clarity
@@ -94,7 +74,3 @@ This project demonstrates:
 * Clean, scalable scripting practices in Luau
 
 ---
-
-## 📎 Script
-
-👉 https://github.com/sinfullykyle/Drone-Camera-Controller/blob/main/CameraRecoil.lua
