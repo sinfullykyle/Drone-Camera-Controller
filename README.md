@@ -60,17 +60,6 @@ StarterPlayerScripts
 
 * Built as a **single-file system** to demonstrate structure and clarity
 * Focused on **responsive camera feedback**, not simple interpolation
-* Designed to be **easy to expand into full FPS systems**
-
----
-
-## 💡 Why this matters
-
-This project demonstrates:
-
-* Understanding of **real-time systems**
-* Ability to structure code using **metatables and modular logic**
-* Knowledge of **camera math and input handling**
-* Clean, scalable scripting practices in Luau
+* Designed to be **easy to expand into full FPS
 
 ---
