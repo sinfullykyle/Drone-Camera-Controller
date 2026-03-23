@@ -1,21 +1,19 @@
---// Services (core Roblox services used for player, rendering, and input)
+--// Services
 local Players=game:GetService("Players")
 local RunService=game:GetService("RunService")
 local UserInputService=game:GetService("UserInputService")
+local TweenService=game:GetService("TweenService")
 
---// Local player + camera references
+--// Player references
 local player=Players.LocalPlayer
 local camera=workspace.CurrentCamera
 
---//==============================
---// Spring Class
---// Handles smooth physics-based motion for camera effects
---//==============================
+--//==================================================
+--// Spring
+--//==================================================
 local Spring={}
 Spring.__index=Spring
 
--- Creates a new spring instance
--- speed = responsiveness, damping = how quickly motion settles
 function Spring.new(speed,damping,initial)
 	local self=setmetatable({},Spring)
 	self.Speed=speed or 10
@@ -26,13 +24,22 @@ function Spring.new(speed,damping,initial)
 	return self
 end
 
--- Adds force instantly to the spring (used for recoil/impact)
 function Spring:Shove(force)
 	self.Velocity+=force
 end
 
--- Updates spring physics every frame
--- Moves Position toward Target with velocity + damping
+function Spring:SetTarget(target)
+	self.Target=target
+end
+
+function Spring:SetPosition(position)
+	self.Position=position
+end
+
+function Spring:SetVelocity(velocity)
+	self.Velocity=velocity
+end
+
 function Spring:Update(dt)
 	local offset=self.Target-self.Position
 	self.Velocity+=offset*self.Speed*dt
@@ -41,65 +48,89 @@ function Spring:Update(dt)
 	return self.Position
 end
 
--- Resets the spring to a specific value
-function Spring:Reset(v)
-	self.Position=v or Vector3.zero
-	self.Target=v or Vector3.zero
+function Spring:Reset(value)
+	self.Position=value or Vector3.zero
+	self.Target=value or Vector3.zero
 	self.Velocity=Vector3.zero
 end
 
---//==============================
---// Controller Class
---// Main system controlling all camera effects
---//==============================
+--//==================================================
+--// Controller
+--//==================================================
 local Controller={}
 Controller.__index=Controller
 
 function Controller.new()
 	local self=setmetatable({},Controller)
 
-	-- Core state
 	self.Enabled=true
+	self.Aiming=false
+	self.ShowDebug=true
+	self.Destroyed=false
+
 	self.Character=nil
 	self.Humanoid=nil
 	self.Root=nil
 	self.Head=nil
 
-	-- Mouse input tracking
 	self.MouseDelta=Vector2.zero
+	self.SmoothedMouse=Vector2.zero
+	self.LastAppliedOffset=CFrame.new()
+	self.LastInputTime=0
+	self.LastRecoilName="Light"
 
-	-- Time accumulator for bobbing
-	self.BobTime=0
-
-	-- Movement state (Idle / Walk / Sprint)
-	self.State="Idle"
-
-	-- Springs for different camera behaviors
 	self.SwaySpring=Spring.new(18,0.82,Vector3.zero)
-	self.MoveSpring=Spring.new(14,0.84,Vector3.zero)
-	self.BobSpring=Spring.new(10,0.86,Vector3.zero)
-	self.LandSpring=Spring.new(16,0.8,Vector3.zero)
-	self.RecoilSpring=Spring.new(20,0.86,Vector3.zero)
-	self.TiltSpring=Spring.new(12,0.85,Vector3.zero)
+	self.RotationSpring=Spring.new(20,0.84,Vector3.zero)
+	self.RecoilSpring=Spring.new(24,0.86,Vector3.zero)
+	self.RollSpring=Spring.new(16,0.82,Vector3.zero)
+	self.IdleSpring=Spring.new(8,0.9,Vector3.zero)
 
-	-- Ground tracking (used for landing detection)
-	self.LastGrounded=true
-	self.IsGrounded=true
-
-	-- Tunable settings for all effects
 	self.Settings={
-		MouseInfluence=0.0025,
-		MoveInfluence=0.03,
-		BobFrequencyWalk=10,
-		BobAmplitudeWalk=0.09,
-		BobFrequencySprint=14,
-		BobAmplitudeSprint=0.14,
-		StrafeTilt=3.5,
-		ForwardTilt=1.2,
-		ThirdPersonDistance=12,
+		SwayPositionX=0.0028,
+		SwayPositionY=0.0022,
+		SwayPositionZ=0.0016,
+		RotationPitch=0.010,
+		RotationYaw=0.008,
+		RotationRoll=0.003,
+		Smoothing=0.28,
+		MaxMouseDelta=36,
+		RecoilReturn=0.9,
+		IdleFrequency=1.8,
+		IdleAmplitudeX=0.010,
+		IdleAmplitudeY=0.016,
+		IdleAmplitudeZ=0.006,
+		MouseDecayThreshold=0.001,
+		AimMultiplier=0.45,
+		NormalMultiplier=1,
+		MinFov=70,
+		MaxFov=78,
+		FovKickScale=0.06,
+		FovSmooth=0.15,
+		InvertX=false,
+		InvertY=false,
+		DebugTransparency=0.25
 	}
 
-	-- Bind systems
+	self.RecoilProfiles={
+		Light={
+			Kick=Vector3.new(-0.40,0.10,0.03),
+			Rot=Vector3.new(math.rad(-1.6),math.rad(0.5),math.rad(0.3))
+		},
+		Medium={
+			Kick=Vector3.new(-0.75,0.16,0.05),
+			Rot=Vector3.new(math.rad(-2.8),math.rad(0.8),math.rad(0.45))
+		},
+		Heavy={
+			Kick=Vector3.new(-1.15,0.22,0.08),
+			Rot=Vector3.new(math.rad(-4.3),math.rad(1.2),math.rad(0.7))
+		}
+	}
+
+	self.Connections={}
+	self.DebugGui=nil
+	self.DebugFrame=nil
+	self.DebugLines={}
+
 	self:BindCharacter()
 	self:BindInput()
 	self:BindLoop()
@@ -108,297 +139,389 @@ function Controller.new()
 	return self
 end
 
---//==============================
---// Character Binding
---// Connects to player character and initializes references
---//==============================
+function Controller:Connect(signal,callback)
+	local connection=signal:Connect(callback)
+	table.insert(self.Connections,connection)
+	return connection
+end
+
+function Controller:DisconnectAll()
+	for _,connection in ipairs(self.Connections) do
+		if connection and connection.Disconnect then
+			connection:Disconnect()
+		end
+	end
+	table.clear(self.Connections)
+end
+
 function Controller:BindCharacter()
 	local function setup(char)
 		self.Character=char
 		self.Humanoid=char:WaitForChild("Humanoid")
 		self.Root=char:WaitForChild("HumanoidRootPart")
 		self.Head=char:WaitForChild("Head")
-
-		-- Reset state + springs when character loads
-		self.BobTime=0
+		self.MouseDelta=Vector2.zero
+		self.SmoothedMouse=Vector2.zero
+		self.LastInputTime=time()
 		self.SwaySpring:Reset(Vector3.zero)
-		self.MoveSpring:Reset(Vector3.zero)
-		self.BobSpring:Reset(Vector3.zero)
-		self.LandSpring:Reset(Vector3.zero)
+		self.RotationSpring:Reset(Vector3.zero)
 		self.RecoilSpring:Reset(Vector3.zero)
-		self.TiltSpring:Reset(Vector3.zero)
+		self.RollSpring:Reset(Vector3.zero)
+		self.IdleSpring:Reset(Vector3.zero)
 	end
 
 	if player.Character then
 		setup(player.Character)
 	end
 
-	player.CharacterAdded:Connect(setup)
+	self:Connect(player.CharacterAdded,setup)
 end
 
---//==============================
---// Input Handling
---// Tracks mouse movement and key presses
---//==============================
+function Controller:Toggle()
+	self.Enabled=not self.Enabled
+	if not self.Enabled then
+		self.MouseDelta=Vector2.zero
+		self.SmoothedMouse=Vector2.zero
+		self.SwaySpring:Reset(Vector3.zero)
+		self.RotationSpring:Reset(Vector3.zero)
+		self.RollSpring:Reset(Vector3.zero)
+		self.IdleSpring:Reset(Vector3.zero)
+	end
+	self:RefreshDebugColors()
+end
+
+function Controller:ToggleAim(state)
+	if state==nil then
+		self.Aiming=not self.Aiming
+	else
+		self.Aiming=state
+	end
+	self:RefreshDebugColors()
+end
+
+function Controller:ToggleDebug()
+	self.ShowDebug=not self.ShowDebug
+	if self.DebugGui then
+		self.DebugGui.Enabled=self.ShowDebug
+	end
+end
+
+function Controller:GetMultiplier()
+	if self.Aiming then
+		return self.Settings.AimMultiplier
+	end
+	return self.Settings.NormalMultiplier
+end
+
+function Controller:GetSignedMouseDelta(delta)
+	local x=delta.X
+	local y=delta.Y
+	if self.Settings.InvertX then
+		x=-x
+	end
+	if self.Settings.InvertY then
+		y=-y
+	end
+	return Vector2.new(x,y)
+end
+
+function Controller:ClampMouseDelta(delta)
+	return Vector2.new(
+		math.clamp(delta.X,-self.Settings.MaxMouseDelta,self.Settings.MaxMouseDelta),
+		math.clamp(delta.Y,-self.Settings.MaxMouseDelta,self.Settings.MaxMouseDelta)
+	)
+end
+
+function Controller:RecordMouse(delta)
+	local signed=self:GetSignedMouseDelta(delta)
+	local clamped=self:ClampMouseDelta(signed)
+	self.MouseDelta=clamped
+	self.LastInputTime=time()
+end
+
 function Controller:BindInput()
-	UserInputService.InputChanged:Connect(function(input,gpe)
+	self:Connect(UserInputService.InputChanged,function(input,gpe)
 		if gpe then
 			return
 		end
-
-		-- Track mouse movement for sway
 		if input.UserInputType==Enum.UserInputType.MouseMovement then
-			self.MouseDelta=input.Delta
+			self:RecordMouse(input.Delta)
 		end
 	end)
 
-	UserInputService.InputBegan:Connect(function(input,gpe)
+	self:Connect(UserInputService.InputBegan,function(input,gpe)
 		if gpe then
 			return
 		end
-
-		-- Toggle system on/off
 		if input.KeyCode==Enum.KeyCode.E then
-			self.Enabled=not self.Enabled
+			self:Toggle()
+		elseif input.KeyCode==Enum.KeyCode.Q then
+			self:ApplyRecoil("Light")
+		elseif input.KeyCode==Enum.KeyCode.R then
+			self:ApplyRecoil("Medium")
+		elseif input.KeyCode==Enum.KeyCode.T then
+			self:ApplyRecoil("Heavy")
+		elseif input.KeyCode==Enum.KeyCode.Z then
+			self:ToggleAim()
+		elseif input.KeyCode==Enum.KeyCode.X then
+			self.Settings.InvertX=not self.Settings.InvertX
+		elseif input.KeyCode==Enum.KeyCode.Y then
+			self.Settings.InvertY=not self.Settings.InvertY
+		elseif input.KeyCode==Enum.KeyCode.F3 then
+			self:ToggleDebug()
+		elseif input.KeyCode==Enum.KeyCode.LeftBracket then
+			self:AdjustSensitivity(-0.0002)
+		elseif input.KeyCode==Enum.KeyCode.RightBracket then
+			self:AdjustSensitivity(0.0002)
 		end
+	end)
 
-		-- Manual recoil test
-		if input.KeyCode==Enum.KeyCode.Q then
-			self.RecoilSpring:Shove(Vector3.new(-0.6,0,0))
+	self:Connect(UserInputService.InputEnded,function(input,gpe)
+		if gpe then
+			return
+		end
+		if input.UserInputType==Enum.UserInputType.MouseButton2 then
+			self:ToggleAim(false)
 		end
 	end)
 end
 
---//==============================
---// Velocity Helpers
---//==============================
-
--- Returns horizontal (XZ) velocity
-function Controller:GetHorizontalVelocity()
-	if not self.Root then
-		return Vector3.zero
-	end
-	local v=self.Root.AssemblyLinearVelocity
-	return Vector3.new(v.X,0,v.Z)
+function Controller:AdjustSensitivity(delta)
+	self.Settings.SwayPositionX=math.clamp(self.Settings.SwayPositionX+delta,0.0006,0.008)
+	self.Settings.SwayPositionY=math.clamp(self.Settings.SwayPositionY+delta,0.0006,0.008)
+	self.Settings.SwayPositionZ=math.clamp(self.Settings.SwayPositionZ+delta*0.6,0.0003,0.006)
+	self.Settings.RotationPitch=math.clamp(self.Settings.RotationPitch+delta*2.5,0.002,0.03)
+	self.Settings.RotationYaw=math.clamp(self.Settings.RotationYaw+delta*2.0,0.0015,0.025)
+	self.Settings.RotationRoll=math.clamp(self.Settings.RotationRoll+delta,0.0005,0.01)
 end
 
--- Converts velocity into local space (relative to player direction)
-function Controller:GetLocalVelocity()
-	if not self.Root then
-		return Vector3.zero
+function Controller:GetSmoothedMouse()
+	local target=self.MouseDelta
+	local alpha=self.Settings.Smoothing
+	self.SmoothedMouse=self.SmoothedMouse:Lerp(target,alpha)
+	if math.abs(self.SmoothedMouse.X)<self.Settings.MouseDecayThreshold then
+		self.SmoothedMouse=Vector2.new(0,self.SmoothedMouse.Y)
 	end
-	return self.Root.CFrame:VectorToObjectSpace(self:GetHorizontalVelocity())
+	if math.abs(self.SmoothedMouse.Y)<self.Settings.MouseDecayThreshold then
+		self.SmoothedMouse=Vector2.new(self.SmoothedMouse.X,0)
+	end
+	self.MouseDelta=self.MouseDelta:Lerp(Vector2.zero,0.35)
+	return self.SmoothedMouse
 end
 
---//==============================
---// Ground Detection
---// Detects landing and applies impact force
---//==============================
-function Controller:UpdateGrounded()
-	if not self.Humanoid or not self.Root then
+function Controller:GetMousePositionOffset(delta)
+	local mult=self:GetMultiplier()
+	local px=-delta.Y*self.Settings.SwayPositionY*mult
+	local py=-delta.X*self.Settings.SwayPositionX*mult
+	local pz=delta.X*self.Settings.SwayPositionZ*mult
+	return Vector3.new(px,py,pz)
+end
+
+function Controller:GetMouseRotationOffset(delta)
+	local mult=self:GetMultiplier()
+	local rx=delta.Y*self.Settings.RotationPitch*mult
+	local ry=delta.X*self.Settings.RotationYaw*mult
+	local rz=-delta.X*self.Settings.RotationRoll*mult
+	return Vector3.new(rx,ry,rz)
+end
+
+function Controller:GetIdleOffset(dt)
+	local currentTime=time()
+	local sinceInput=currentTime-self.LastInputTime
+	if sinceInput<0.08 then
+		self.IdleSpring:SetTarget(Vector3.zero)
+		return self.IdleSpring:Update(dt)
+	end
+	local wave=currentTime*self.Settings.IdleFrequency
+	local x=math.sin(wave)*self.Settings.IdleAmplitudeX
+	local y=math.cos(wave*1.3)*self.Settings.IdleAmplitudeY
+	local z=math.sin(wave*0.7)*self.Settings.IdleAmplitudeZ
+	self.IdleSpring:SetTarget(Vector3.new(x,y,z)*self:GetMultiplier())
+	return self.IdleSpring:Update(dt)
+end
+
+function Controller:GetFovTarget(deltaMagnitude)
+	local kick=math.clamp(deltaMagnitude*self.Settings.FovKickScale,0,self.Settings.MaxFov-self.Settings.MinFov)
+	return self.Settings.MinFov+kick
+end
+
+function Controller:UpdateFov(deltaMagnitude)
+	local target=self:GetFovTarget(deltaMagnitude)
+	camera.FieldOfView=camera.FieldOfView+(target-camera.FieldOfView)*self.Settings.FovSmooth
+end
+
+function Controller:ApplyRecoil(profileName)
+	local profile=self.RecoilProfiles[profileName]
+	if not profile then
 		return
 	end
-
-	local state=self.Humanoid:GetState()
-	local grounded=not(state==Enum.HumanoidStateType.Freefall or state==Enum.HumanoidStateType.FallingDown or state==Enum.HumanoidStateType.Jumping)
-
-	self.LastGrounded=self.IsGrounded
-	self.IsGrounded=grounded
-
-	-- If player just landed, apply landing impact
-	if self.IsGrounded and not self.LastGrounded then
-		local impact=math.clamp(math.abs(self.Root.AssemblyLinearVelocity.Y)*0.015,0,1.2)
-		self.LandSpring:Shove(Vector3.new(0,-impact,0))
-	end
+	self.LastRecoilName=profileName
+	self.RecoilSpring:Shove(profile.Kick)
+	self.RotationSpring:Shove(profile.Rot)
+	self.RollSpring:Shove(Vector3.new(0,0,profile.Rot.Z))
 end
 
--- Determines movement state based on speed
-function Controller:GetMoveState(speed)
-	if speed<0.15 then
-		return"Idle"
-	elseif speed<14 then
-		return"Walk"
-	else
-		return"Sprint"
-	end
-end
-
---//==============================
---// Camera Effect Components
---//==============================
-
--- Mouse-based sway
-function Controller:GetMouseSway(dt)
-	local d=self.MouseDelta
-	self.MouseDelta=d:Lerp(Vector3.zero,0.35)
-	self.SwaySpring.Target=Vector3.new(-d.Y*self.Settings.MouseInfluence,-d.X*self.Settings.MouseInfluence,d.X*self.Settings.MouseInfluence*0.7)
+function Controller:UpdateSway(dt,delta)
+	local target=self:GetMousePositionOffset(delta)
+	self.SwaySpring:SetTarget(target)
 	return self.SwaySpring:Update(dt)
 end
 
--- Movement-based camera offset
-function Controller:GetMovementOffset(dt,localVelocity)
-	local x=math.clamp(localVelocity.X*self.Settings.MoveInfluence,-0.35,0.35)
-	local z=math.clamp(-localVelocity.Z*0.012,-0.2,0.2)
-	self.MoveSpring.Target=Vector3.new(0,x,z)
-	return self.MoveSpring:Update(dt)
+function Controller:UpdateRotation(dt,delta)
+	local target=self:GetMouseRotationOffset(delta)
+	self.RotationSpring:SetTarget(target)
+	return self.RotationSpring:Update(dt)
 end
 
--- Head bobbing effect (based on movement and state)
-function Controller:GetBob(dt,speed)
-	if speed<0.15 or not self.IsGrounded then
-		self.BobSpring.Target=Vector3.zero
-		return self.BobSpring:Update(dt)
-	end
-
-	local freq=self.State=="Sprint" and self.Settings.BobFrequencySprint or self.Settings.BobFrequencyWalk
-	local amp=self.State=="Sprint" and self.Settings.BobAmplitudeSprint or self.Settings.BobAmplitudeWalk
-
-	self.BobTime+=dt*freq
-
-	local x=math.cos(self.BobTime*0.5)*amp
-	local y=math.abs(math.sin(self.BobTime))*amp
-
-	self.BobSpring.Target=Vector3.new(x,y,0)
-	return self.BobSpring:Update(dt)
+function Controller:UpdateRoll(dt,delta)
+	local target=Vector3.new(0,0,-delta.X*self.Settings.RotationRoll*0.6*self:GetMultiplier())
+	self.RollSpring:SetTarget(target)
+	return self.RollSpring:Update(dt)
 end
 
--- Landing recovery effect
-function Controller:GetLanding(dt)
-	self.LandSpring.Target*=0.88
-	return self.LandSpring:Update(dt)
-end
-
--- Recoil recovery effect
-function Controller:GetRecoil(dt)
-	self.RecoilSpring.Target*=0.9
+function Controller:UpdateRecoil(dt)
+	self.RecoilSpring.Target*=self.Settings.RecoilReturn
 	return self.RecoilSpring:Update(dt)
 end
 
--- Camera tilt based on movement direction
-function Controller:GetTilt(dt,localVelocity)
-	local roll=math.rad(math.clamp(-localVelocity.X*0.08,-1,1)*self.Settings.StrafeTilt)
-	local pitch=math.rad(math.clamp(localVelocity.Z*0.03,-1,1)*self.Settings.ForwardTilt)
-	self.TiltSpring.Target=Vector3.new(pitch,0,roll)
-	return self.TiltSpring:Update(dt)
-end
-
---//==============================
---// Final Camera Composition
---// Combines all effects into one CFrame offset
---//==============================
 function Controller:ComputeOffset(dt)
-	self:UpdateGrounded()
+	local delta=self:GetSmoothedMouse()
+	local sway=self:UpdateSway(dt,delta)
+	local rot=self:UpdateRotation(dt,delta)
+	local recoil=self:UpdateRecoil(dt)
+	local roll=self:UpdateRoll(dt,delta)
+	local idle=self:GetIdleOffset(dt)
 
-	local worldVelocity=self:GetHorizontalVelocity()
-	local speed=worldVelocity.Magnitude
+	local pos=sway+recoil+idle
+	local rx=rot.X+recoil.X*0.10
+	local ry=rot.Y
+	local rz=rot.Z+roll.Z
 
-	self.State=self:GetMoveState(speed)
-
-	local localVelocity=self:GetLocalVelocity()
-
-	local sway=self:GetMouseSway(dt)
-	local move=self:GetMovementOffset(dt,localVelocity)
-	local bob=self:GetBob(dt,speed)
-	local land=self:GetLanding(dt)
-	local recoil=self:GetRecoil(dt)
-	local tilt=self:GetTilt(dt,localVelocity)
-
-	local pos=bob+move+land+recoil+sway
-
-	local rx=tilt.X+sway.X*0.5+recoil.X*0.08
-	local ry=sway.Y*0.3
-	local rz=tilt.Z+sway.Z
-
-	return CFrame.new(pos)*CFrame.Angles(rx,ry,rz),speed
+	return CFrame.new(pos)*CFrame.Angles(rx,ry,rz),delta
 end
 
---//==============================
---// Render Loop
---// Applies camera effects every frame
---//==============================
-function Controller:BindLoop()
-	RunService:BindToRenderStep("KyleCameraEffects",Enum.RenderPriority.Camera.Value+1,function(dt)
-		if not self.Enabled then
-			return
-		end
-		if not self.Character or not self.Root or not self.Head then
-			return
-		end
-
-		local offset,speed=self:ComputeOffset(dt)
-
-		camera.CFrame=camera.CFrame*offset
-
-		self.LastSpeed=speed
-	end)
+function Controller:CreateLine(parent,name,positionY,textSize)
+	local label=Instance.new("TextLabel")
+	label.Name=name
+	label.Size=UDim2.new(1,-12,0,20)
+	label.Position=UDim2.new(0,6,0,positionY)
+	label.BackgroundTransparency=1
+	label.TextXAlignment=Enum.TextXAlignment.Left
+	label.Font=Enum.Font.Gotham
+	label.TextSize=textSize or 14
+	label.TextColor3=Color3.new(1,1,1)
+	label.Text=""
+	label.Parent=parent
+	return label
 end
 
---//==============================
---// Debug UI
---// Displays system state and speed
---//==============================
+function Controller:RefreshDebugColors()
+	if not self.DebugFrame then
+		return
+	end
+	if self.Enabled then
+		self.DebugFrame.BackgroundColor3=Color3.fromRGB(30,30,30)
+	else
+		self.DebugFrame.BackgroundColor3=Color3.fromRGB(55,20,20)
+	end
+end
+
 function Controller:CreateDebug()
 	local gui=Instance.new("ScreenGui")
-	gui.Name="CameraEffectDebug"
+	gui.Name="MouseCameraDebug"
 	gui.ResetOnSpawn=false
+	gui.Enabled=self.ShowDebug
 	gui.Parent=player:WaitForChild("PlayerGui")
+	self.DebugGui=gui
 
 	local frame=Instance.new("Frame")
-	frame.Size=UDim2.new(0,280,0,120)
+	frame.Name="Main"
+	frame.Size=UDim2.new(0,320,0,190)
 	frame.Position=UDim2.new(0,20,0,20)
-	frame.BackgroundTransparency=0.25
+	frame.BackgroundTransparency=self.Settings.DebugTransparency
 	frame.BorderSizePixel=0
 	frame.Parent=gui
+	self.DebugFrame=frame
 
 	local corner=Instance.new("UICorner")
-	corner.CornerRadius=UDim.new(0,10)
+	corner.CornerRadius=UDim.new(0,12)
 	corner.Parent=frame
 
-	local title=Instance.new("TextLabel")
-	title.Size=UDim2.new(1,0,0,28)
-	title.BackgroundTransparency=1
+	local stroke=Instance.new("UIStroke")
+	stroke.Thickness=1
+	stroke.Transparency=0.35
+	stroke.Parent=frame
+
+	local title=self:CreateLine(frame,"Title",8,16)
 	title.Font=Enum.Font.GothamBold
-	title.TextSize=16
-	title.TextColor3=Color3.new(1,1,1)
-	title.Text="Camera Effects Test"
-	title.Parent=frame
+	title.Text="Mouse Camera Controller"
 
-	local line1=Instance.new("TextLabel")
-	line1.Size=UDim2.new(1,-12,0,22)
-	line1.Position=UDim2.new(0,6,0,35)
-	line1.BackgroundTransparency=1
-	line1.TextXAlignment=Enum.TextXAlignment.Left
-	line1.Font=Enum.Font.Gotham
-	line1.TextSize=14
-	line1.TextColor3=Color3.new(1,1,1)
-	line1.Parent=frame
+	local line1=self:CreateLine(frame,"Line1",38,14)
+	local line2=self:CreateLine(frame,"Line2",60,14)
+	local line3=self:CreateLine(frame,"Line3",82,14)
+	local line4=self:CreateLine(frame,"Line4",104,14)
+	local line5=self:CreateLine(frame,"Line5",126,14)
+	local line6=self:CreateLine(frame,"Line6",148,13)
 
-	local line2=Instance.new("TextLabel")
-	line2.Size=UDim2.new(1,-12,0,22)
-	line2.Position=UDim2.new(0,6,0,59)
-	line2.BackgroundTransparency=1
-	line2.TextXAlignment=Enum.TextXAlignment.Left
-	line2.Font=Enum.Font.Gotham
-	line2.TextSize=14
-	line2.TextColor3=Color3.new(1,1,1)
-	line2.Parent=frame
+	self.DebugLines={line1,line2,line3,line4,line5,line6}
 
-	local line3=Instance.new("TextLabel")
-	line3.Size=UDim2.new(1,-12,0,22)
-	line3.Position=UDim2.new(0,6,0,83)
-	line3.BackgroundTransparency=1
-	line3.TextXAlignment=Enum.TextXAlignment.Left
-	line3.Font=Enum.Font.Gotham
-	line3.TextSize=14
-	line3.TextColor3=Color3.new(1,1,1)
-	line3.Text="E toggle | Q recoil test"
-	line3.Parent=frame
+	self:RefreshDebugColors()
+end
 
-	RunService.RenderStepped:Connect(function()
-		line1.Text="Enabled: "..tostring(self.Enabled).." | State: "..tostring(self.State)
-		line2.Text="Speed: "..string.format("%.2f",self.LastSpeed or 0)
+function Controller:UpdateDebug(delta)
+	if not self.ShowDebug then
+		return
+	end
+	if not self.DebugLines[1] then
+		return
+	end
+
+	self.DebugLines[1].Text="Enabled: "..tostring(self.Enabled).." | Aim: "..tostring(self.Aiming)
+	self.DebugLines[2].Text="Mouse: "..string.format("X %.2f | Y %.2f",delta.X,delta.Y)
+	self.DebugLines[3].Text="Sensitivity: "..string.format("%.4f",self.Settings.SwayPositionX)
+	self.DebugLines[4].Text="InvertX: "..tostring(self.Settings.InvertX).." | InvertY: "..tostring(self.Settings.InvertY)
+	self.DebugLines[5].Text="FOV: "..string.format("%.2f",camera.FieldOfView).." | Recoil: "..self.LastRecoilName
+	self.DebugLines[6].Text="E Toggle | Q/R/T Recoil | Z Aim | [ ] Sens | F3 Debug"
+end
+
+function Controller:BindLoop()
+	RunService:BindToRenderStep("KyleMouseCameraController",Enum.RenderPriority.Camera.Value+1,function(dt)
+		if self.Destroyed then
+			return
+		end
+
+		if not self.Enabled then
+			self:UpdateFov(0)
+			self:UpdateDebug(Vector2.zero)
+			return
+		end
+
+		if not self.Character or not self.Head or not self.Root then
+			return
+		end
+
+		local base=camera.CFrame
+		local offset,delta=self:ComputeOffset(dt)
+		camera.CFrame=base*offset
+		self:UpdateFov(delta.Magnitude)
+		self:UpdateDebug(delta)
 	end)
 end
 
---// Initialize controller
+function Controller:Destroy()
+	if self.Destroyed then
+		return
+	end
+	self.Destroyed=true
+	RunService:UnbindFromRenderStep("KyleMouseCameraController")
+	self:DisconnectAll()
+	if self.DebugGui then
+		self.DebugGui:Destroy()
+		self.DebugGui=nil
+	end
+end
+
+--//==================================================
+--// Boot
+--//==================================================
 local controller=Controller.new()
