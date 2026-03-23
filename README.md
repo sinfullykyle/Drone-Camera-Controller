@@ -1,52 +1,100 @@
-# Roblox Camera Controller System
+# 🎥 Roblox Camera Controller System
 
-A custom camera controller built in Luau that simulates responsive, physics-based motion using springs. This system focuses on mouse-driven camera sway, recoil effects, and dynamic feedback rather than traditional movement-based bobbing.
+![Luau](https://img.shields.io/badge/Luau-Roblox-blue)
+![Type](https://img.shields.io/badge/System-Camera_Controller-green)
+![Status](https://img.shields.io/badge/Status-Active-success)
 
-## Features
+A custom camera controller built in Luau that simulates responsive, physics-based motion using springs.
+This system focuses on **mouse-driven camera sway, recoil effects, and real-time feedback**, designed for immersive experiences and FPS-style games.
+
+---
+
+## ✨ Features
 
 * Spring-based camera motion system
 * Mouse-driven sway with smoothing and clamping
 * Multiple recoil profiles (light, medium, heavy)
-* Toggleable camera system (E key)
-* Aim mode with reduced intensity (Z key)
-* Sensitivity adjustment in real time ([ and ] keys)
-* Optional axis inversion (X / Y keys)
+* Toggleable camera system (**E key**)
+* Aim mode with reduced intensity (**Z key**)
+* Live sensitivity adjustment (**[ and ] keys**)
+* Optional axis inversion (**X / Y keys**)
 * Dynamic FOV response based on mouse movement
-* Idle camera motion when input is inactive
-* Real-time debug interface with system data
+* Idle camera motion when inactive
+* Real-time debug interface
 
-## Systems Used
+---
+
+## 🧠 Systems Used
 
 * CFrame transformation and layered composition
 * Metatable-based object design (Spring + Controller)
 * Mouse delta processing and smoothing
-* RenderStep-based camera pipeline
-* State handling and modular system structure
-* Dynamic parameter tuning and input-driven behavior
+* RenderStep camera pipeline
+* Modular state handling
+* Dynamic parameter tuning
 
-## Usage
+---
 
-Place the script in a **LocalScript** inside `StarterPlayerScripts`.
+## 🎮 Controls
 
-## Controls
+| Key           | Action                          |
+| ------------- | ------------------------------- |
+| **E**         | Toggle camera system            |
+| **Q / R / T** | Recoil (light / medium / heavy) |
+| **Z**         | Toggle aim mode                 |
+| **[ / ]**     | Adjust sensitivity              |
+| **X / Y**     | Toggle axis inversion           |
+| **F3**        | Toggle debug UI                 |
 
-* **E** → Toggle camera system
-* **Q / R / T** → Trigger recoil (light / medium / heavy)
-* **Z** → Toggle aim mode
-* **[ / ]** → Adjust sensitivity
-* **X / Y** → Toggle axis inversion
-* **F3** → Toggle debug UI
+---
 
-## Demo
+## 🚀 Usage
 
-This system is demonstrated in a Roblox place showcasing:
+Place the script in a **LocalScript** inside:
 
-* Mouse-based camera sway and smoothing
-* Recoil behavior and recovery
-* Aim mode responsiveness
-* Real-time debug feedback
-* Dynamic FOV adjustments
+```plaintext
+StarterPlayerScripts
+```
 
-## Notes
+---
 
-This script is intentionally written as a single-file system to demonstrate structure, readability, and understanding of Luau systems, camera math, and real-time input handling. The focus is on building a responsive and modular camera pipeline rather than relying on basic interpolation.
+## 🎥 Demo
+
+> (Optional but HIGHLY recommended)
+
+Add a short GIF or video here showing:
+
+* Mouse movement → sway
+* Recoil test
+* Aim mode
+
+Example:
+
+```md
+![Demo](your-gif-link-here)
+```
+
+---
+
+## 📌 Notes
+
+* Built as a **single-file system** to demonstrate structure and clarity
+* Focused on **responsive camera feedback**, not simple interpolation
+* Designed to be **easy to expand into full FPS systems**
+
+---
+
+## 💡 Why this matters
+
+This project demonstrates:
+
+* Understanding of **real-time systems**
+* Ability to structure code using **metatables and modular logic**
+* Knowledge of **camera math and input handling**
+* Clean, scalable scripting practices in Luau
+
+---
+
+## 📎 Script
+
+👉 https://github.com/sinfullykyle/Drone-Camera-Controller/blob/main/CameraRecoil.lua
